@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../api.dart';
 
-/// 举报弹窗（动态 / 用户 / 评论）
+/// 举报弹窗（动态 / 用户 / 评论 / 消息：dm_message、chat_message、group_message）
 Future<void> showReportSheet(BuildContext context, String targetType, int targetId) async {
   const reasons = ['违法违规', '色情低俗', '人身攻击', '广告骚扰', '侵权', '其他'];
   String reason = reasons[0];

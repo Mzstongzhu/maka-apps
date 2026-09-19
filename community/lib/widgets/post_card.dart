@@ -4,6 +4,9 @@ import 'avatar.dart';
 import 'user_tag.dart';
 import 'report_sheet.dart';
 import 'visibility_editor.dart';
+import 'rich_text.dart';
+import 'video_viewer.dart';
+import '../services/share_service.dart';
 
 /// 全屏图片查看器
 Future<void> showImageViewer(BuildContext context, String url) async {
@@ -123,6 +126,7 @@ class _PostCardState extends State<PostCard> {
             ],
             if (!isMine)
               ListTile(leading: const Icon(Icons.flag_outlined), title: const Text('举报'), onTap: () => Navigator.pop(ctx, 'report')),
+            ListTile(leading: const Icon(Icons.share_outlined), title: const Text('分享海报'), onTap: () => Navigator.pop(ctx, 'share')),
             if (!isMine && widget.myIsAdmin)
               ListTile(leading: const Icon(Icons.delete_outline, color: Colors.red), title: const Text('管理员删除', style: TextStyle(color: Colors.red)), onTap: () => Navigator.pop(ctx, 'adminDel')),
             if (isMine)
@@ -137,6 +141,7 @@ class _PostCardState extends State<PostCard> {
       case 'del': _delete();
       case 'adminDel': _delete(admin: true);
       case 'report': showReportSheet(context, 'post', widget.post.id);
+      case 'share': sharePost(context, widget.post);
       case 'vis':
         final saved = await showVisibilityEditor(context, widget.post);
         if (saved) widget.onChanged?.call();
@@ -202,9 +207,13 @@ class _PostCardState extends State<PostCard> {
             if (p.content.isNotEmpty)
               Padding(
                 padding: EdgeInsets.only(top: 8, bottom: p.images.isEmpty ? 4 : 8),
-                child: Text(p.content, style: const TextStyle(fontSize: 15, height: 1.45)),
+                child: RichContent(
+                  text: p.content,
+                  mentions: p.mentions,
+                  tags: p.tags,
+                ),
               ),
-            if (p.images.isNotEmpty) _imageGrid(p.images),
+            if (p.images.isNotEmpty) _mediaGrid(p.images),
             const SizedBox(height: 6),
             Row(
               children: [
@@ -237,6 +246,15 @@ class _PostCardState extends State<PostCard> {
                     ),
                   ),
                 ),
+                const SizedBox(width: 8),
+                InkWell(
+                  onTap: () => sharePost(context, widget.post),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    child: Icon(Icons.share_outlined, size: 18, color: Colors.grey[600]),
+                  ),
+                ),
                 const Spacer(),
                 Text('#${p.author?.id ?? ''}', style: TextStyle(fontSize: 11, color: Colors.grey[400])),
                 if (isMine && p.visibility != 'public')
@@ -252,8 +270,8 @@ class _PostCardState extends State<PostCard> {
     );
   }
 
-  Widget _imageGrid(List<String> images) {
-    final urls = images.map((e) => absUrl(e)).toList();
+  Widget _mediaGrid(List<String> media) {
+    final urls = media.map((e) => absUrl(e)).toList();
     final count = urls.length.clamp(1, 9);
     final cross = count == 1 ? 1 : (count <= 4 ? 2 : 3);
     return Padding(
@@ -268,13 +286,21 @@ class _PostCardState extends State<PostCard> {
           crossAxisSpacing: 6,
           childAspectRatio: count == 1 ? (16 / 10) : 1,
         ),
-        itemBuilder: (_, i) => GestureDetector(
-          onTap: () => showImageViewer(context, urls[i]),
-          child: ClipRRect(
+        itemBuilder: (_, i) {
+          final url = urls[i];
+          return ClipRRect(
             borderRadius: BorderRadius.circular(10),
-            child: Image.network(urls[i], fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: Colors.grey.shade200, child: const Icon(Icons.broken_image))),
-          ),
-        ),
+            child: isVideoPath(url)
+                ? VideoThumb(url: url, cover: true)
+                : GestureDetector(
+                    onTap: () => showImageViewer(context, url),
+                    child: Image.network(url, fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                            color: Colors.grey.shade200,
+                            child: const Icon(Icons.broken_image))),
+                  ),
+          );
+        },
       ),
     );
   }

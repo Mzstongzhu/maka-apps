@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../admin_api.dart';
+import '../widgets/message_snapshot_view.dart';
 
 /// 举报处理：协管员与管理员均可
 class ReportsScreen extends StatefulWidget {
@@ -40,6 +41,12 @@ class _ReportsScreenState extends State<ReportsScreen> with AutomaticKeepAliveCl
   }
 
   Future<void> _handle(AdminReport r) async {
+    final actions = <(String, IconData, String, String)>[
+      if (!r.isMessageReport) ('delete_content', Icons.delete_forever, '删除违规内容', '删除被举报的动态/评论'),
+      ('mute_user', Icons.volume_off, '禁言发布者 3 天', '并扣除 20 积分'),
+      ('ban_user', Icons.block, '封禁发布者账号', '并扣除 20 积分'),
+      ('dismiss', Icons.check_circle_outline, '驳回举报', '经核查未构成违规'),
+    ];
     final action = await showModalBottomSheet<String>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -47,12 +54,7 @@ class _ReportsScreenState extends State<ReportsScreen> with AutomaticKeepAliveCl
           mainAxisSize: MainAxisSize.min,
           children: [
             const Padding(padding: EdgeInsets.all(12), child: Text('选择处理方式', style: TextStyle(fontWeight: FontWeight.bold))),
-            for (final (a, icon, label, sub) in [
-              ('delete_content', Icons.delete_forever, '删除违规内容', '删除被举报的动态/评论'),
-              ('mute_user', Icons.volume_off, '禁言发布者 3 天', '并扣除 20 积分'),
-              ('ban_user', Icons.block, '封禁发布者账号', '并扣除 20 积分'),
-              ('dismiss', Icons.check_circle_outline, '驳回举报', '经核查未构成违规'),
-            ])
+            for (final (a, icon, label, sub) in actions)
               ListTile(
                 leading: Icon(icon),
                 title: Text(label),
@@ -65,6 +67,7 @@ class _ReportsScreenState extends State<ReportsScreen> with AutomaticKeepAliveCl
       ),
     );
     if (action == null) return;
+    if (!mounted) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -132,14 +135,28 @@ class _ReportsScreenState extends State<ReportsScreen> with AutomaticKeepAliveCl
                                       padding: const EdgeInsets.only(top: 6),
                                       child: Text('说明：${r.description}', style: TextStyle(fontSize: 12, color: Colors.grey[700])),
                                     ),
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 6),
-                                    child: Text(_targetText(r), style: const TextStyle(fontSize: 13)),
-                                  ),
+                                  if (r.isMessageReport)
+                                    if (r.snapshot != null)
+                                      MessageSnapshotView(snapshot: r.snapshot!)
+                                    else
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 6),
+                                        child: Text(_targetText(r), style: const TextStyle(fontSize: 13)),
+                                      )
+                                  else
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: Text(_targetText(r), style: const TextStyle(fontSize: 13)),
+                                    ),
                                   const SizedBox(height: 6),
                                   Row(
                                     children: [
                                       Text('举报人：${r.reporter?['display_name'] ?? '未知'}', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                                      if (r.isMessageReport && r.offender != null)
+                                        Padding(
+                                          padding: const EdgeInsets.only(left: 8),
+                                          child: Text('被举报：${r.offender!['display_name']}', style: const TextStyle(fontSize: 11, color: Colors.deepOrange)),
+                                        ),
                                       const Spacer(),
                                       if (_pending)
                                         FilledButton.tonal(

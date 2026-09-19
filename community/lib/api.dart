@@ -13,6 +13,14 @@ String absUrl(String? url) {
   return url.startsWith('http') ? url : '$BASE_URL$url';
 }
 
+/// 动态媒体 URL 是否为视频（与服务端 EXT 映射一致：mp4/mov/m4v/webm）
+bool isVideoPath(String? url) {
+  if (url == null || url.isEmpty) return false;
+  final u = url.toLowerCase().split('?').first;
+  return u.endsWith('.mp4') || u.endsWith('.mov') ||
+      u.endsWith('.m4v') || u.endsWith('.webm');
+}
+
 // ===================== 数据模型 =====================
 
 class User {
@@ -65,10 +73,27 @@ class User {
   String get label => displayName ?? customId ?? '用户$id';
 }
 
+/// @ 候选用户（发布器）
+class MentionCandidate {
+  final int id;
+  final String displayName;
+  final String customId;
+  final String avatar;
+  MentionCandidate({required this.id, required this.displayName, this.customId = '', this.avatar = ''});
+  factory MentionCandidate.fromJson(Map<String, dynamic> j) => MentionCandidate(
+        id: j['id'] as int? ?? 0,
+        displayName: j['display_name'] as String? ?? '',
+        customId: j['custom_id'] as String? ?? '',
+        avatar: j['avatar'] as String? ?? '',
+      );
+  User toUser() => User(id: id, displayName: displayName, customId: customId, avatar: avatar);
+}
+
 class Conversation {
   final int peerId;
   final String peerName;
   final String lastMessage;
+  final String lastType;
   final bool lastFromMe;
   final int lastTime;
   final int unread;
@@ -76,6 +101,7 @@ class Conversation {
     required this.peerId,
     required this.peerName,
     required this.lastMessage,
+    this.lastType = 'text',
     required this.lastFromMe,
     required this.lastTime,
     required this.unread,
@@ -87,10 +113,21 @@ class Conversation {
       peerId: peer['id'] as int? ?? 0,
       peerName: peer['display_name'] as String? ?? peer['custom_id'] as String? ?? '用户${peer['id']}',
       lastMessage: last['content'] as String? ?? '',
+      lastType: last['type'] as String? ?? 'text',
       lastFromMe: _asBool(last['from_me']),
       lastTime: last['created_at'] as int? ?? 0,
       unread: j['unread'] as int? ?? 0,
     );
+  }
+
+  /// 会话列表预览文本（富媒体显示占位）
+  String get lastPreview {
+    switch (lastType) {
+      case 'image': return '[图片]';
+      case 'voice': return '[语音]';
+      case 'video': return '[视频]';
+      default: return lastMessage;
+    }
   }
 }
 
@@ -99,14 +136,27 @@ class Message {
   final int fromId;
   final int toId;
   String content;
+  final String type; // text/image/voice/video
+  final int duration;
   final int createdAt;
   int readAt;
-  Message({required this.id, required this.fromId, required this.toId, required this.content, required this.createdAt, this.readAt = 0});
+  Message({
+    required this.id,
+    required this.fromId,
+    required this.toId,
+    required this.content,
+    required this.createdAt,
+    this.type = 'text',
+    this.duration = 0,
+    this.readAt = 0,
+  });
   factory Message.fromJson(Map<String, dynamic> j) => Message(
         id: j['id'] as int? ?? 0,
         fromId: j['from_id'] as int? ?? 0,
         toId: j['to_id'] as int? ?? 0,
         content: j['content'] as String? ?? '',
+        type: j['type'] as String? ?? 'text',
+        duration: j['duration'] as int? ?? 0,
         createdAt: j['created_at'] as int? ?? 0,
         readAt: j['read_at'] as int? ?? 0,
       );
@@ -116,13 +166,15 @@ class AppNotification {
   final int id;
   final String type;
   final Map<String, dynamic> payload;
+  final Map<String, dynamic>? target;
   final int createdAt;
   final bool read;
-  AppNotification({required this.id, required this.type, required this.payload, required this.createdAt, required this.read});
+  AppNotification({required this.id, required this.type, required this.payload, this.target, required this.createdAt, required this.read});
   factory AppNotification.fromJson(Map<String, dynamic> j) => AppNotification(
         id: j['id'] as int? ?? 0,
         type: j['type'] as String? ?? '',
-        payload: j['payload'] as Map<String, dynamic>? ?? {},
+        payload: (j['payload'] as Map?)?.cast<String, dynamic>() ?? {},
+        target: (j['target'] as Map?)?.cast<String, dynamic>(),
         createdAt: j['created_at'] as int? ?? 0,
         read: j['read_at'] != null,
       );
@@ -130,12 +182,37 @@ class AppNotification {
     switch (type) {
       case 'like': return '收到点赞';
       case 'comment': return '收到评论';
+      case 'mention': return '有人提到了你';
       case 'security': return '安全提醒';
       case 'dm': return '新私信';
+      case 'friend_request': return '好友申请';
+      case 'friend_accept': return '好友申请已通过';
+      case 'dm_request': return '消息申请';
+      case 'dm_accept': return '私信申请已通过';
+      case 'chat_invite': return '群聊邀请';
+      case 'chat_kicked': return '被移出群聊';
       default: return payload['title'] as String? ?? '社区通知';
     }
   }
+
   String get body => (payload['content'] as String?) ?? (payload['excerpt'] as String?) ?? '';
+}
+
+/// 未读聚合：系统通知 / 私信 / 聊天群 / 消息申请
+class UnreadCount {
+  final int notify;
+  final int dm;
+  final int chat;
+  final int dmRequest;
+  final int total;
+  UnreadCount({this.notify = 0, this.dm = 0, this.chat = 0, this.dmRequest = 0, this.total = 0});
+  factory UnreadCount.fromJson(Map<String, dynamic> j) => UnreadCount(
+        notify: j['notify'] as int? ?? 0,
+        dm: j['dm'] as int? ?? 0,
+        chat: j['chat'] as int? ?? 0,
+        dmRequest: j['dm_request'] as int? ?? 0,
+        total: j['total'] as int? ?? 0,
+      );
 }
 
 class GroupBrief {
@@ -201,6 +278,8 @@ class Post {
   final String visibility; // public / self / whitelist / blacklist
   List<int> visibleTo;
   List<int> hiddenFrom;
+  final List<PostMention> mentions; // 正文中 @ 的用户
+  final List<String> tags; // 正文标签名
   Post({
     required this.id,
     this.author,
@@ -216,6 +295,8 @@ class Post {
     this.visibility = 'public',
     this.visibleTo = const [],
     this.hiddenFrom = const [],
+    this.mentions = const [],
+    this.tags = const [],
   });
   factory Post.fromJson(Map<String, dynamic> j) => Post(
         id: j['id'] as int? ?? 0,
@@ -232,6 +313,206 @@ class Post {
         visibility: j['visibility'] as String? ?? 'public',
         visibleTo: (j['visible_to'] as List?)?.map((e) => e as int).toList() ?? [],
         hiddenFrom: (j['hidden_from'] as List?)?.map((e) => e as int).toList() ?? [],
+        mentions: (j['mentions'] as List?)
+                ?.map((e) => PostMention.fromJson(e as Map<String, dynamic>))
+                .toList() ??
+            const [],
+        tags: (j['tags'] as List?)?.map((e) => e as String).toList() ?? const [],
+      );
+}
+
+/// 动态正文中 @ 的用户（精简信息，来自 decorate）
+class PostMention {
+  final int id;
+  final String displayName;
+  final String avatar;
+  PostMention({required this.id, required this.displayName, this.avatar = ''});
+  factory PostMention.fromJson(Map<String, dynamic> j) => PostMention(
+        id: j['id'] as int? ?? 0,
+        displayName: j['display_name'] as String? ?? '',
+        avatar: j['avatar'] as String? ?? '',
+      );
+}
+
+/// 标签详情头信息
+class TagInfo {
+  final int id;
+  final String name;
+  final int postCount;
+  TagInfo({required this.id, required this.name, this.postCount = 0});
+  factory TagInfo.fromJson(Map<String, dynamic> j) => TagInfo(
+        id: j['id'] as int? ?? 0,
+        name: j['name'] as String? ?? '',
+        postCount: j['post_count'] as int? ?? 0,
+      );
+}
+
+/// 好友申请（decorateReq：对端用户在 user 字段）
+class FriendRequest {
+  final int id;
+  final String status; // pending / accepted / rejected / cancelled
+  final String message;
+  final int createdAt;
+  final User user;
+  FriendRequest({
+    required this.id,
+    this.status = 'pending',
+    this.message = '',
+    this.createdAt = 0,
+    required this.user,
+  });
+  factory FriendRequest.fromJson(Map<String, dynamic> j) => FriendRequest(
+        id: j['id'] as int? ?? 0,
+        status: j['status'] as String? ?? 'pending',
+        message: j['message'] as String? ?? '',
+        createdAt: j['created_at'] as int? ?? 0,
+        user: User.fromJson((j['user'] as Map?)?.cast<String, dynamic>() ?? const {}),
+      );
+}
+
+/// 隐私设置四开关
+class PrivacySettings {
+  final bool allowStrangerMention; // 允许陌生人@我
+  final bool allowStrangerFriend; // 允许陌生人加好友
+  final bool dmConfirm; // 陌生人私信需我确认
+  final bool friendAutoAccept; // 加好友无需我同意
+  PrivacySettings({
+    this.allowStrangerMention = true,
+    this.allowStrangerFriend = true,
+    this.dmConfirm = false,
+    this.friendAutoAccept = false,
+  });
+  factory PrivacySettings.fromJson(Map<String, dynamic> j) => PrivacySettings(
+        allowStrangerMention: _asBool(j['allow_stranger_mention']),
+        allowStrangerFriend: _asBool(j['allow_stranger_friend']),
+        dmConfirm: _asBool(j['dm_confirm']),
+        friendAutoAccept: _asBool(j['friend_auto_accept']),
+      );
+}
+
+/// 私信申请（陌生人首条消息进箱）
+class DmRequest {
+  final User user; // 对方（incoming=from / outgoing=to）
+  final String lastMessage;
+  final int createdAt;
+  final int updatedAt;
+  DmRequest({
+    required this.user,
+    this.lastMessage = '',
+    this.createdAt = 0,
+    this.updatedAt = 0,
+  });
+  factory DmRequest.fromJson(Map<String, dynamic> j) {
+    final u = (j['from'] ?? j['to']) as Map?;
+    return DmRequest(
+      user: User.fromJson((u as Map<String, dynamic>?)?.cast<String, dynamic>() ?? const {}),
+      lastMessage: j['last_message'] as String? ?? '',
+      createdAt: j['created_at'] as int? ?? 0,
+      updatedAt: j['updated_at'] as int? ?? 0,
+    );
+  }
+}
+
+// ---------- 聊天群组（纯聊天群） ----------
+
+class ChatGroup {
+  final int id;
+  String name;
+  String avatar;
+  final int ownerId;
+  bool joinByNumber;
+  final int lastMsgAt;
+  final String lastPreview;
+  final int unread;
+  final int memberCount;
+  ChatGroup({
+    required this.id,
+    required this.name,
+    this.avatar = '',
+    this.ownerId = 0,
+    this.joinByNumber = false,
+    this.lastMsgAt = 0,
+    this.lastPreview = '',
+    this.unread = 0,
+    this.memberCount = 0,
+  });
+  factory ChatGroup.fromJson(Map<String, dynamic> j) => ChatGroup(
+        id: j['id'] as int? ?? 0,
+        name: j['name'] as String? ?? '',
+        avatar: j['avatar'] as String? ?? '',
+        ownerId: j['owner_id'] as int? ?? 0,
+        joinByNumber: j['join_by_number'] == true,
+        lastMsgAt: j['last_msg_at'] as int? ?? 0,
+        lastPreview: j['last_preview'] as String? ?? '',
+        unread: j['unread'] as int? ?? 0,
+        memberCount: j['member_count'] as int? ?? 0,
+      );
+}
+
+class ChatGroupMember {
+  final User user;
+  final String role; // owner / member
+  final int joinedAt;
+  ChatGroupMember({required this.user, this.role = 'member', this.joinedAt = 0});
+  bool get isOwner => role == 'owner';
+}
+
+class ChatGroupDetail {
+  final ChatGroup group;
+  final String myRole; // owner / member
+  final List<ChatGroupMember> members;
+  ChatGroupDetail({required this.group, this.myRole = 'member', required this.members});
+  bool get iAmOwner => myRole == 'owner';
+  factory ChatGroupDetail.fromJson(Map<String, dynamic> data) {
+    final g = data['group'] as Map<String, dynamic>? ?? const {};
+    return ChatGroupDetail(
+      group: ChatGroup.fromJson({
+        ...g,
+        'member_count': ((data['members'] as List?)?.length ?? g['member_count'] ?? 0),
+      }),
+      myRole: data['my_role'] as String? ?? 'member',
+      members: ((data['members'] as List?) ?? const [])
+          .map((e) {
+            final m = e as Map<String, dynamic>;
+            return ChatGroupMember(
+              user: User.fromJson(m),
+              role: m['role'] as String? ?? 'member',
+              joinedAt: m['joined_at'] as int? ?? 0,
+            );
+          })
+          .toList(),
+    );
+  }
+}
+
+class ChatMessage {
+  final int id;
+  final int groupId;
+  final int fromId;
+  final String type; // text / image / voice / video
+  final String content;
+  final int duration; // 语音秒数
+  final int createdAt;
+  final User? from;
+  ChatMessage({
+    required this.id,
+    this.groupId = 0,
+    this.fromId = 0,
+    this.type = 'text',
+    this.content = '',
+    this.duration = 0,
+    this.createdAt = 0,
+    this.from,
+  });
+  factory ChatMessage.fromJson(Map<String, dynamic> j) => ChatMessage(
+        id: j['id'] as int? ?? 0,
+        groupId: j['group_id'] as int? ?? 0,
+        fromId: j['from_id'] as int? ?? j['from']?['id'] as int? ?? 0,
+        type: j['type'] as String? ?? 'text',
+        content: j['content'] as String? ?? '',
+        duration: j['duration'] as int? ?? 0,
+        createdAt: j['created_at'] as int? ?? 0,
+        from: j['from'] == null ? null : User.fromJson(j['from'] as Map<String, dynamic>),
       );
 }
 
@@ -255,13 +536,25 @@ class GroupMessage {
   final int id;
   final int fromId;
   final String content;
+  final String type;
+  final int duration;
   final int createdAt;
   final User? author;
-  GroupMessage({required this.id, required this.fromId, required this.content, required this.createdAt, this.author});
+  GroupMessage({
+    required this.id,
+    required this.fromId,
+    required this.content,
+    required this.createdAt,
+    this.type = 'text',
+    this.duration = 0,
+    this.author,
+  });
   factory GroupMessage.fromJson(Map<String, dynamic> j) => GroupMessage(
         id: j['id'] as int? ?? 0,
         fromId: j['from_id'] as int? ?? j['author']?['id'] as int? ?? 0,
         content: j['content'] as String? ?? '',
+        type: j['type'] as String? ?? 'text',
+        duration: j['duration'] as int? ?? 0,
         createdAt: j['created_at'] as int? ?? 0,
         author: j['author'] == null ? null : User.fromJson(j['author'] as Map<String, dynamic>),
       );
@@ -576,8 +869,13 @@ class Api {
     return [];
   }
 
-  static Future<String?> sendMessage(int toId, String content) async {
-    final (data, err) = await _send('POST', '/api/dm', {'to_id': toId, 'content': content});
+  static Future<String?> sendMessage(int toId, String content,
+      {String type = 'text', int duration = 0}) async {
+    final (data, err) = await _send('POST', '/api/dm', {
+      'to_id': toId, 'content': content,
+      if (type != 'text') 'type': type,
+      if (duration > 0) 'duration': duration,
+    });
     if (err != null) return err;
     return data?['id'] == null ? '发送失败' : null;
   }
@@ -606,6 +904,13 @@ class Api {
     await _send('POST', '/api/notifications/read');
   }
 
+  /// 一次拉取全部未读聚合（notify/dm/chat/dm_request/total）
+  static Future<UnreadCount> getUnreadCount() async {
+    final data = await _get('/api/unread-count');
+    if (data != null) return UnreadCount.fromJson(data);
+    return UnreadCount();
+  }
+
   // ---------- 动态 ----------
 
   static Future<(List<Post>, bool)> getFeed({int? before, int? groupId, int? authorId}) async {
@@ -625,6 +930,24 @@ class Api {
     final data = await _get('/api/posts/$id');
     if (data?['post'] != null) return Post.fromJson(data!['post'] as Map<String, dynamic>);
     return null;
+  }
+
+  /// 标签详情 + 该标签下动态流（sort: new / hot）
+  static Future<(TagInfo?, List<Post>, bool)> getTagDetail(String name,
+      {String sort = 'new', int before = 0}) async {
+    var path = '/api/tags/${Uri.encodeComponent(name)}?sort=$sort&limit=10';
+    if (sort == 'new' && before > 0) path += '&before=$before';
+    final data = await _get(path);
+    if (data?['tag'] == null) return (null, <Post>[], false);
+    final tag = TagInfo.fromJson(data!['tag'] as Map<String, dynamic>);
+    final items = (data['items'] as List?)?.map((e) => Post.fromJson(e as Map<String, dynamic>)).toList() ?? <Post>[];
+    return (tag, items, data['has_more'] == true);
+  }
+
+  /// 热门标签
+  static Future<List<TagInfo>> getHotTags({int limit = 20}) async {
+    final data = await _get('/api/tags/hot?limit=$limit');
+    return (data?['items'] as List?)?.map((e) => TagInfo.fromJson(e as Map<String, dynamic>)).toList() ?? [];
   }
 
   static Future<List<Comment>> getComments(int postId) async {
@@ -658,15 +981,179 @@ class Api {
     List<String> images = const [],
     String visibility = 'public',
     int? groupId,
+    List<int> mentions = const [],
+    List<String> tags = const [],
   }) async {
     final (data, err) = await _send('POST', '/api/posts', {
       'content': content,
       'images': images,
       'visibility': visibility,
       if (groupId != null) 'group_id': groupId,
+      'mentions': mentions,
+      'tags': tags,
     });
     if (err != null) return (null, err);
     return (data?['status'] as String? ?? 'normal', null);
+  }
+
+  /// @ 候选用户（服务端：最近聊天置顶，其后模糊匹配；已过滤禁止陌生人@的用户）
+  static Future<List<MentionCandidate>> getMentionSuggestions(String q) async {
+    final path = q.isEmpty
+        ? '/api/mention/suggestions'
+        : '/api/mention/suggestions?q=${Uri.encodeQueryComponent(q)}';
+    final data = await _get(path);
+    final items = (data?['items'] as List?) ?? const [];
+    return items.map((j) => MentionCandidate.fromJson(j as Map<String, dynamic>)).toList();
+  }
+
+  // ===================== 好友系统 =====================
+
+  /// 发起好友申请。返回 (关系状态 friends/pending, 申请 id?, 错误?)
+  static Future<(String, int?, String?)> sendFriendRequest(int uid, {String message = ''}) async {
+    final (data, err) = await _send('POST', '/api/friends/request/$uid', {'message': message});
+    if (err != null) return ('none', null, err);
+    return (data?['status'] as String? ?? 'pending', data?['id'] as int?, null);
+  }
+
+  static Future<String?> _friendAction(String path, {String method = 'POST'}) async {
+    final (_, err) = await _send(method, path, const {});
+    return err;
+  }
+
+  static Future<String?> acceptFriend(int requestId) => _friendAction('/api/friends/accept/$requestId');
+  static Future<String?> rejectFriend(int requestId) => _friendAction('/api/friends/reject/$requestId');
+  static Future<String?> cancelFriend(int requestId) => _friendAction('/api/friends/cancel/$requestId');
+  static Future<String?> removeFriend(int uid) => _friendAction('/api/friends/$uid', method: 'DELETE');
+
+  static Future<List<User>> getFriends() async {
+    final data = await _get('/api/friends');
+    return (data?['items'] as List?)?.map((e) => User.fromJson(e as Map<String, dynamic>)).toList() ?? [];
+  }
+
+  static Future<List<FriendRequest>> _friendRequests(String path) async {
+    final data = await _get(path);
+    return (data?['items'] as List?)
+            ?.map((e) => FriendRequest.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        [];
+  }
+
+  static Future<List<FriendRequest>> getIncomingFriends() => _friendRequests('/api/friends/requests/incoming');
+  static Future<List<FriendRequest>> getOutgoingFriends() => _friendRequests('/api/friends/requests/outgoing');
+
+  /// 与某用户的关系：none / pending_out / pending_in / friends
+  static Future<String> friendStatus(int uid) async {
+    final data = await _get('/api/friends/status/$uid');
+    return data?['status'] as String? ?? 'none';
+  }
+
+  // ===================== 隐私设置 =====================
+
+  /// 读取我的隐私设置
+  static Future<PrivacySettings> getPrivacy() async {
+    final data = await _get('/api/me/privacy');
+    return PrivacySettings.fromJson((data?['privacy'] as Map?)?.cast<String, dynamic>() ?? const {});
+  }
+
+  /// 更新部分隐私开关，返回更新后的完整设置
+  static Future<(PrivacySettings?, String?)> updatePrivacy(Map<String, bool> patch) async {
+    final (data, err) = await _send('PUT', '/api/me/privacy', patch);
+    if (err != null) return (null, err);
+    return (PrivacySettings.fromJson((data?['privacy'] as Map?)?.cast<String, dynamic>() ?? const {}), null);
+  }
+
+  // ===================== 私信申请箱 =====================
+
+  static Future<List<DmRequest>> _dmRequests(String path) async {
+    final data = await _get(path);
+    return (data?['items'] as List?)?.map((e) => DmRequest.fromJson(e as Map<String, dynamic>)).toList() ?? [];
+  }
+
+  /// 收到的陌生人私信申请
+  static Future<List<DmRequest>> getDmRequests() => _dmRequests('/api/dm/requests');
+
+  /// 我发出、等待对方确认的申请
+  static Future<List<DmRequest>> getDmRequestsOutgoing() => _dmRequests('/api/dm/requests/outgoing');
+
+  /// 同意：申请语作为首条私信落库，对方收到 dm_accept
+  static Future<String?> acceptDmRequest(int fromUid) async {
+    final (_, err) = await _send('POST', '/api/dm/requests/$fromUid/accept', const {});
+    return err;
+  }
+
+  static Future<String?> ignoreDmRequest(int fromUid) async {
+    final (_, err) = await _send('POST', '/api/dm/requests/$fromUid/ignore', const {});
+    return err;
+  }
+
+  // ===================== 聊天群组（纯聊天群） =====================
+
+  /// 创建聊天群
+  static Future<(int? id, String? err)> createChatGroup(String name, List<int> memberIds) async {
+    final (data, err) = await _send('POST', '/api/chats', {'name': name, 'member_ids': memberIds});
+    if (err != null) return (null, err);
+    return ((data?['id'] as num?)?.toInt(), null);
+  }
+
+  /// 我加入的聊天群（含最后消息预览与未读数）
+  static Future<List<ChatGroup>> getChatGroups() async {
+    final data = await _get('/api/chats');
+    return (data?['items'] as List?)?.map((e) => ChatGroup.fromJson(e as Map<String, dynamic>)).toList() ?? [];
+  }
+
+  /// 群资料 + 成员
+  static Future<ChatGroupDetail?> getChatGroup(int id) async {
+    final data = await _get('/api/chats/$id');
+    return data == null ? null : ChatGroupDetail.fromJson(data);
+  }
+
+  /// 修改群资料（群主）：可改 name / join_by_number
+  static Future<String?> updateChatGroup(int id, Map<String, dynamic> patch) async {
+    final (_, err) = await _send('PUT', '/api/chats/$id', patch);
+    return err;
+  }
+
+  /// 邀请成员（直接入群）
+  static Future<(List<int> joined, String? err)> inviteToChat(int id, List<int> userIds) async {
+    final (data, err) = await _send('POST', '/api/chats/$id/invite', {'user_ids': userIds});
+    if (err != null) return (<int>[], err);
+    final joined = ((data?['joined'] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
+    return (joined, null);
+  }
+
+  /// 凭群号加入（需群开放 join_by_number）
+  static Future<String?> joinChatByNumber(int groupId) async {
+    final (_, err) = await _send('POST', '/api/chats/join-by-number', {'group_id': groupId});
+    return err;
+  }
+
+  /// 踢人（群主）
+  static Future<String?> kickFromChat(int id, int uid) async {
+    final (_, err) = await _send('POST', '/api/chats/$id/kick/$uid', const {});
+    return err;
+  }
+
+  /// 退群；群主退群且仅剩自己时群解散
+  static Future<(bool dissolved, String? err)> leaveChat(int id) async {
+    final (data, err) = await _send('POST', '/api/chats/$id/leave', const {});
+    if (err != null) return (false, err);
+    return (data?['dissolved'] == true, null);
+  }
+
+  /// 群消息历史（拉取即更新已读位）
+  static Future<List<ChatMessage>> getChatMessages(int id, {int before = 0}) async {
+    final data = await _get('/api/chats/$id/messages${before > 0 ? '?before=$before' : ''}');
+    return (data?['items'] as List?)?.map((e) => ChatMessage.fromJson(e as Map<String, dynamic>)).toList() ?? [];
+  }
+
+  /// 发送群消息
+  static Future<(int? id, String? err)> sendChatMessage(int id, {
+    required String type, required String content, int duration = 0,
+  }) async {
+    final (data, err) = await _send('POST', '/api/chats/$id/messages',
+        {'type': type, 'content': content, if (duration > 0) 'duration': duration});
+    if (err != null) return (null, err);
+    return ((data?['id'] as num?)?.toInt(), null);
   }
 
   static Future<String?> updatePost(int id, Map<String, dynamic> body) async {
@@ -752,6 +1239,54 @@ class Api {
       return (<String>[], _errFromBody(res.statusCode, body));
     } catch (e) {
       return (<String>[], '网络错误: $e');
+    }
+  }
+
+  /// 聊天图片（≤10MB），返回 (url, err)
+  static Future<(String?, String?)> uploadChatImageFile(String filePath, {String? mime}) async {
+    try {
+      final ct = _imageMime(filePath, mime);
+      final ext = ct.subtype == 'jpeg' ? 'jpg' : ct.subtype;
+      final req = http.MultipartRequest('POST', Uri.parse('$BASE_URL/api/upload/chat-image'))
+        ..headers['Authorization'] = 'Bearer $_token'
+        ..files.add(await http.MultipartFile.fromPath('file', filePath,
+            contentType: ct, filename: 'chat_${DateTime.now().millisecondsSinceEpoch}.$ext'));
+      final res = await _client.send(req).timeout(const Duration(seconds: 90));
+      final body = await res.stream.bytesToString();
+      if (res.statusCode == 200) {
+        return (((json.decode(body) as Map<String, dynamic>)['url'] as String?), null);
+      }
+      return (null, _errFromBody(res.statusCode, body));
+    } catch (e) {
+      return (null, '网络错误: $e');
+    }
+  }
+
+  /// 聊天媒体（图片/视频/语音，≤50MB），返回 (url, err)
+  static Future<(String?, String?)> uploadChatMediaFile(String filePath, {String? mime}) async {
+    try {
+      final ct = mime != null
+          ? MediaType.parse(mime)
+          : (filePath.toLowerCase().endsWith('.m4a')
+              ? MediaType('audio', 'mp4')
+              : (filePath.toLowerCase().endsWith('.aac')
+                  ? MediaType('audio', 'aac')
+                  : _imageMime(filePath, mime)));
+      final ext = ct.type == 'image'
+          ? (ct.subtype == 'jpeg' ? 'jpg' : ct.subtype)
+          : (ct.type == 'video' ? ct.subtype : ct.subtype);
+      final req = http.MultipartRequest('POST', Uri.parse('$BASE_URL/api/upload/media'))
+        ..headers['Authorization'] = 'Bearer $_token'
+        ..files.add(await http.MultipartFile.fromPath('file', filePath,
+            contentType: ct, filename: 'media_${DateTime.now().millisecondsSinceEpoch}.$ext'));
+      final res = await _client.send(req).timeout(const Duration(seconds: 120));
+      final body = await res.stream.bytesToString();
+      if (res.statusCode == 200) {
+        return (((json.decode(body) as Map<String, dynamic>)['url'] as String?), null);
+      }
+      return (null, _errFromBody(res.statusCode, body));
+    } catch (e) {
+      return (null, '网络错误: $e');
     }
   }
 
@@ -848,7 +1383,7 @@ class Api {
     return err;
   }
 
-  // ---------- 群组 ----------
+  // ---------- 小社区 ----------
 
   static Future<List<Group>> getGroups(String? q) async {
     final data = await _get('/api/groups${q != null && q.isNotEmpty ? '?q=${Uri.encodeComponent(q)}' : ''}');
@@ -873,7 +1408,7 @@ class Api {
     return null;
   }
 
-  /// 返回 (群组, 成员列表, 待审数, 错误)
+  /// 返回 (小社区, 成员列表, 待审数, 错误)
   static Future<(Group?, List<User>, int, String?)> getGroupDetail(int gid) async {
     final data = await _get('/api/groups/$gid');
     if (data != null) {
@@ -881,7 +1416,7 @@ class Api {
       final members = (data['members'] as List?)?.map((e) => User.fromJson(e as Map<String, dynamic>)).toList() ?? [];
       return (group, members, data['pending_count'] as int? ?? 0, null);
     }
-    return (null, <User>[], 0, '群组不存在或已解散');
+    return (null, <User>[], 0, '小社区不存在或已解散');
   }
 
   /// 返回 (是否需审核, 错误)
@@ -937,8 +1472,13 @@ class Api {
     return [];
   }
 
-  static Future<String?> sendGroupChat(int gid, String content) async {
-    final (_, err) = await _send('POST', '/api/groups/$gid/chat', {'content': content});
+  static Future<String?> sendGroupChat(int gid, String content,
+      {String type = 'text', int duration = 0}) async {
+    final (_, err) = await _send('POST', '/api/groups/$gid/chat', {
+      'content': content,
+      if (type != 'text') 'type': type,
+      if (duration > 0) 'duration': duration,
+    });
     return err;
   }
 
@@ -993,11 +1533,13 @@ class SocketService {
   static final _readController = StreamController<Map<String, dynamic>>.broadcast();
   static final _notifyController = StreamController<Map<String, dynamic>>.broadcast();
   static final _groupMsgController = StreamController<Map<String, dynamic>>.broadcast();
+  static final _chatMsgController = StreamController<Map<String, dynamic>>.broadcast();
   static Stream<Map<String, dynamic>> get dmStream => _dmController.stream;
   static Stream<Map<String, dynamic>> get sentStream => _sentController.stream;
   static Stream<Map<String, dynamic>> get readStream => _readController.stream;
   static Stream<Map<String, dynamic>> get notifyStream => _notifyController.stream;
   static Stream<Map<String, dynamic>> get groupMsgStream => _groupMsgController.stream;
+  static Stream<Map<String, dynamic>> get chatMsgStream => _chatMsgController.stream;
 
   static Map<String, dynamic> _asMap(dynamic data) =>
       data is String ? json.decode(data) as Map<String, dynamic> : (data as Map<String, dynamic>? ?? {});
@@ -1018,8 +1560,10 @@ class SocketService {
     // 对方已读了我发的消息 {reader, ids}
     _socket!.on('dm:read', (data) => _readController.add(_asMap(data)));
     _socket!.on('notify:new', (data) => _notifyController.add(_asMap(data)));
-    // 群聊消息
+    // 群聊消息（小社区）
     _socket!.on('group:msg', (data) => _groupMsgController.add(_asMap(data)));
+    // 聊天群组消息
+    _socket!.on('chat:msg', (data) => _chatMsgController.add(_asMap(data)));
     _socket!.connect();
   }
 

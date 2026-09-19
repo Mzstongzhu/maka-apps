@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../api.dart';
+import '../services/version_service.dart';
 import '../widgets/avatar.dart';
+import '../widgets/update_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -284,6 +286,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  // ---------- 检查更新 ----------
+  Future<void> _checkUpdate() async {
+    _toast('正在检查更新…');
+    await UpdateDialog.check(
+      context,
+      currentVersion: VersionService.currentVersion,
+      manual: true,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -308,8 +320,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _item(context, Icons.history, '积分记录', '查看明细', _pointsHistory),
                 const Divider(),
                 _item(context, Icons.lock_outline, '修改密码', '', _changePassword),
-                _item(context, Icons.info_outline, '关于', '玛卡之声社区 v0.1.0', () {
-                  showAboutDialog(context: context, applicationName: '玛卡之声社区', applicationVersion: '0.1.0', applicationLegalese: '玛卡之声社区 APP');
+                _item(context, Icons.system_update, '检查更新', 'v${VersionService.currentVersion}', _checkUpdate),
+                _item(context, Icons.info_outline, '关于', '玛卡之声社区 v${VersionService.currentVersion}', () {
+                  showAboutDialog(context: context, applicationName: '玛卡之声社区', applicationVersion: VersionService.currentVersion, applicationLegalese: '玛卡之声社区 APP');
                 }),
                 const SizedBox(height: 16),
                 Padding(

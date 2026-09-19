@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../api.dart';
+import '../widgets/chat_media.dart';
+import '../widgets/chat_input.dart';
+import '../widgets/message_actions.dart';
 
 class ChatScreen extends StatefulWidget {
   final int peerId;
@@ -11,11 +14,9 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final _input = TextEditingController();
   final _scroll = ScrollController();
   final List<Message> _messages = [];
   bool _loading = true;
-  bool _sending = false;
   int? _myId;
   int _tempSeq = -1; // 本地乐观消息的临时负数 id
   StreamSubscription? _newSub;
@@ -90,30 +91,26 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  Future<void> _send() async {
-    final text = _input.text.trim();
-    if (text.isEmpty || _sending) return;
-    _input.clear();
+  /// ChatInputBar 回调：乐观插入 + 发送
+  Future<String?> _onSend(String type, String content, int duration) async {
     final temp = Message(
       id: _tempSeq--,
       fromId: _myId ?? 0,
       toId: widget.peerId,
-      content: text,
+      content: content,
+      type: type,
+      duration: duration,
       createdAt: DateTime.now().millisecondsSinceEpoch,
     );
-    setState(() { _sending = true; _messages.add(temp); });
+    setState(() => _messages.add(temp));
     _scrollToBottom();
-    final err = await Api.sendMessage(widget.peerId, text);
-    if (!mounted) return;
+    final err = await Api.sendMessage(widget.peerId, content, type: type, duration: duration);
     if (err != null) {
-      setState(() {
-        _messages.removeWhere((m) => m.id == temp.id);
-        _input.text = text;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      setState(() => _messages.removeWhere((m) => m.id == temp.id));
+      return err;
     }
-    // 成功后由 dm:sent 回执替换乐观消息（即使 socket 暂时未到，下次进会话也会以真实消息为准）
-    setState(() => _sending = false);
+    // 成功后由 dm:sent 回执替换乐观消息
+    return null;
   }
 
   @override
@@ -121,7 +118,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _newSub?.cancel();
     _sentSub?.cancel();
     _readSub?.cancel();
-    _input.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -149,12 +145,12 @@ class _ChatScreenState extends State<ChatScreen> {
                         itemBuilder: (ctx, i) {
                           final m = _messages[i];
                           final fromMe = m.fromId == _myId;
-                          final showRead = fromMe && m.id == lastMineId;
+                          final showRead = fromMe && m.id == lastMineId && m.type == 'text';
                           return _bubble(m, fromMe, showRead);
                         },
                       ),
           ),
-          _inputBar,
+          ChatInputBar(onSend: _onSend),
         ],
       ),
     );
@@ -168,7 +164,16 @@ class _ChatScreenState extends State<ChatScreen> {
         children: [
           if (fromMe) const SizedBox(width: 48),
           Flexible(
-            child: Container(
+            child: GestureDetector(
+              onLongPress: () => showMessageActions(
+                context,
+                canReport: !fromMe && m.id > 0,
+                canCopy: m.type == 'text' && m.content.isNotEmpty,
+                reportType: 'dm_message',
+                messageId: m.id,
+                text: m.content,
+              ),
+              child: Container(
               constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.72),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
               decoration: BoxDecoration(
@@ -185,7 +190,7 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(m.content, style: TextStyle(color: fromMe ? Colors.white : null, fontSize: 15)),
+                  ChatMediaContent(type: m.type, content: m.content, duration: m.duration, fromMe: fromMe),
                   const SizedBox(height: 2),
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -208,6 +213,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ],
               ),
+              ),
             ),
           ),
           if (!fromMe) const SizedBox(width: 48),
@@ -215,32 +221,4 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
   }
-
-  Widget get _inputBar => SafeArea(
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _input,
-              decoration: const InputDecoration(
-                hintText: '输入消息…',
-                border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(24))),
-                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              ),
-              onSubmitted: (_) => _send(),
-            ),
-          ),
-          const SizedBox(width: 8),
-          IconButton.filled(
-            onPressed: _sending ? null : _send,
-            icon: _sending
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.send),
-          ),
-        ],
-      ),
-    ),
-  );
 }

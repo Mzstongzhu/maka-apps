@@ -5,12 +5,7 @@ import '../widgets/post_card.dart';
 import 'composer_screen.dart';
 import 'post_detail_screen.dart';
 import 'search_screen.dart';
-import 'announcements_screen.dart';
-import 'notifications_screen.dart';
-import 'groups_screen.dart';
-import 'bottle_screen.dart';
-import 'activities_screen.dart';
-import 'settings_screen.dart';
+import 'scanner_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -25,7 +20,6 @@ class HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMix
   User? _me;
   bool _checkedToday = false;
   bool _checkinBusy = false;
-  List<Announcement> _anns = [];
 
   @override
   bool get wantKeepAlive => true;
@@ -39,7 +33,6 @@ class HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMix
   Future<void> refresh() async {
     final (posts, hasMore) = await Api.getFeed();
     final me = await Api.getMe();
-    final anns = await Api.getAnnouncements();
     if (me != null) {
       try {
         _checkedToday = await Api.checkinStatus();
@@ -51,7 +44,6 @@ class HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMix
       _hasMore = hasMore;
       _loading = false;
       _me = me;
-      _anns = anns.take(3).toList();
     });
   }
 
@@ -91,8 +83,8 @@ class HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMix
       appBar: AppBar(
         title: const Text('玛卡之声社区'),
         actions: [
+          IconButton(icon: const Icon(Icons.qr_code_scanner), tooltip: '扫一扫', onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ScannerScreen()))),
           IconButton(icon: const Icon(Icons.search), tooltip: '搜索', onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen()))),
-          IconButton(icon: const Icon(Icons.notifications_outlined), tooltip: '通知', onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsScreen()))),
         ],
       ),
       body: RefreshIndicator(
@@ -155,40 +147,6 @@ class HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMix
                       ),
                     ),
                   ),
-                  // 公告
-                  if (_anns.isNotEmpty)
-                    Container(
-                      margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-                      decoration: BoxDecoration(
-                        color: Colors.amber.shade50,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: Colors.amber.shade200),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
-                            child: Row(
-                              children: [
-                                const Text('📢 官方公告', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                                const Spacer(),
-                                GestureDetector(
-                                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnnouncementsScreen())),
-                                  child: Text('全部 ›', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                                ),
-                              ],
-                            ),
-                          ),
-                          ..._anns.map((a) => ListTile(
-                                dense: true,
-                                title: Text(a.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                                subtitle: Text(formatTime(a.createdAt), style: const TextStyle(fontSize: 11)),
-                                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnnouncementsScreen())),
-                              )),
-                        ],
-                      ),
-                    ),
                   // 动态流
                   if (_posts.isEmpty && !_loading)
                     Padding(
@@ -219,47 +177,8 @@ class HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMix
                     ),
                   if (_loading && _posts.isNotEmpty)
                     const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator())),
-                  // 快捷入口
-                  Container(
-                    margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).cardColor,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.grey.shade200),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _quick(context, Icons.groups, '群组', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const GroupsScreen()))),
-                        _quick(context, Icons.sailing, '漂流瓶', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BottleScreen()))),
-                        _quick(context, Icons.emoji_events_outlined, '活动', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ActivitiesScreen()))),
-                        _quick(context, Icons.campaign_outlined, '公告', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnnouncementsScreen()))),
-                        _quick(context, Icons.settings_outlined, '设置', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))),
-                      ],
-                    ),
-                  ),
                 ],
               ),
-      ),
-    );
-  }
-
-  Widget _quick(BuildContext context, IconData icon, String label, VoidCallback onTap) {
-    final cs = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: cs.primary, size: 24),
-            const SizedBox(height: 4),
-            Text(label, style: const TextStyle(fontSize: 12)),
-          ],
-        ),
       ),
     );
   }

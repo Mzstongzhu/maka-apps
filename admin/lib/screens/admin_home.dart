@@ -5,6 +5,7 @@ import 'reports_screen.dart';
 import 'users_screen.dart';
 import 'moderation_screen.dart';
 import 'announcements_screen.dart';
+import '../widgets/update_dialog.dart';
 
 /// 管理面板主框架：底部导航按权限显示
 /// 协管员：概览 + 举报处理；官方管理员：全部
@@ -16,6 +17,13 @@ class AdminHome extends StatefulWidget {
 
 class _AdminHomeState extends State<AdminHome> {
   int _tab = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // 冷启动自动检查更新（大版本强制 / 小版本可跳过，逻辑与社区版一致）
+    WidgetsBinding.instance.addPostFrameCallback((_) => UpdateDialog.check(context));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +56,7 @@ class _AdminHomeState extends State<AdminHome> {
             tooltip: '退出登录',
             icon: const Icon(Icons.logout),
             onPressed: () async {
+              final nav = Navigator.of(context);
               final ok = await showDialog<bool>(
                 context: context,
                 builder: (ctx) => AlertDialog(
@@ -59,9 +68,9 @@ class _AdminHomeState extends State<AdminHome> {
                   ],
                 ),
               );
-              if (ok == true && mounted) {
+              if (ok == true) {
                 AdminApi.logout();
-                if (mounted) Navigator.pop(context);
+                nav.pop();
               }
             },
           ),

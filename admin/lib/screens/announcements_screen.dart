@@ -99,6 +99,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> with Automati
                           icon: const Icon(Icons.delete_outline, color: Colors.red),
                           tooltip: '删除公告',
                           onPressed: () async {
+                            final messenger = ScaffoldMessenger.of(context);
                             final ok = await showDialog<bool>(
                               context: context,
                               builder: (c) => AlertDialog(
@@ -113,8 +114,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> with Automati
                             if (ok != true) return;
                             final id = (a['id'] as num).toInt();
                             final err = await AdminApi.deleteAnnouncement(id);
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err ?? '已删除')));
+                            messenger.showSnackBar(SnackBar(content: Text(err ?? '已删除')));
                             _load();
                           },
                         ),

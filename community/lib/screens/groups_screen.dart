@@ -31,21 +31,40 @@ class _GroupsScreenState extends State<GroupsScreen> {
   Future<void> _create() async {
     final nameCtrl = TextEditingController();
     final descCtrl = TextEditingController();
+    // 创建小社区需消耗 500 积分
+    const cost = 500;
+    final me = await Api.getMe();
+    final myPoints = me?.points ?? 0;
+    final enough = myPoints >= cost;
+    if (!mounted) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('创建群组'),
+        title: const Text('创建小社区'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: nameCtrl, maxLength: 30, decoration: const InputDecoration(labelText: '群组名称（1-30 字）')),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: (enough ? Colors.green : Colors.red).withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                enough ? '创建需消耗 $cost 积分（当前 $myPoints，创建后剩 ${myPoints - cost}）' : '积分不足：创建需 $cost 积分，当前仅 $myPoints',
+                style: TextStyle(fontSize: 12, color: enough ? Colors.green.shade800 : Colors.red),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(controller: nameCtrl, maxLength: 30, decoration: const InputDecoration(labelText: '小社区名称（1-30 字）')),
             const SizedBox(height: 8),
-            TextField(controller: descCtrl, maxLines: 3, maxLength: 500, decoration: const InputDecoration(labelText: '群组简介（选填）')),
+            TextField(controller: descCtrl, maxLines: 3, maxLength: 500, decoration: const InputDecoration(labelText: '小社区简介（选填）')),
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('创建')),
+          FilledButton(onPressed: enough ? () => Navigator.pop(ctx, true) : null, child: const Text('创建（-500）')),
         ],
       ),
     );
@@ -61,7 +80,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
     if (err != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err!)));
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('群组创建成功')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('小社区创建成功')));
       _load();
     }
   }
@@ -76,9 +95,9 @@ class _GroupsScreenState extends State<GroupsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('群组'),
+        title: const Text('小社区'),
         actions: [
-          IconButton(icon: const Icon(Icons.add), tooltip: '创建群组', onPressed: _create),
+          IconButton(icon: const Icon(Icons.add), tooltip: '创建小社区', onPressed: _create),
         ],
       ),
       body: RefreshIndicator(
@@ -96,7 +115,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                           child: TextField(
                             controller: _q,
                             decoration: const InputDecoration(
-                              hintText: '搜索群组…',
+                              hintText: '搜索小社区…',
                               prefixIcon: Icon(Icons.search),
                               isDense: true,
                               border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(24))),
@@ -110,7 +129,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                     ),
                   ),
                   if (_mine.isNotEmpty) ...[
-                    const Padding(padding: EdgeInsets.fromLTRB(16, 10, 16, 4), child: Text('我的群组', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
+                    const Padding(padding: EdgeInsets.fromLTRB(16, 10, 16, 4), child: Text('我的小社区', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
                     ..._mine.map((g) => ListTile(
                           leading: MakaAvatar(group: GroupBrief(id: g.id, name: g.name, avatar: g.avatar), size: 40),
                           title: Text(g.name),
@@ -128,9 +147,9 @@ class _GroupsScreenState extends State<GroupsScreen> {
                           onTap: () => _open(g.id),
                         )),
                   ],
-                  const Padding(padding: EdgeInsets.fromLTRB(16, 10, 16, 4), child: Text('全部群组', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
+                  const Padding(padding: EdgeInsets.fromLTRB(16, 10, 16, 4), child: Text('全部小社区', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
                   if (_groups.isEmpty)
-                    Padding(padding: const EdgeInsets.symmetric(vertical: 40), child: Center(child: Text('没有找到群组', style: TextStyle(color: Colors.grey[500])))),
+                    Padding(padding: const EdgeInsets.symmetric(vertical: 40), child: Center(child: Text('没有找到小社区', style: TextStyle(color: Colors.grey[500])))),
                   ..._groups.map((g) => Container(
                         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                         child: Card(

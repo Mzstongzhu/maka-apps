@@ -5,6 +5,9 @@ import '../api.dart';
 import '../widgets/avatar.dart';
 import '../widgets/user_tag.dart';
 import '../widgets/post_card.dart';
+import '../widgets/chat_media.dart';
+import '../widgets/chat_input.dart';
+import '../widgets/message_actions.dart';
 import 'composer_screen.dart';
 import 'post_detail_screen.dart';
 import 'user_profile_screen.dart';
@@ -23,11 +26,9 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
   int _pendingCount = 0;
   List<Post> _posts = [];
   List<GroupMessage> _chat = [];
-  final _chatCtrl = TextEditingController();
   final _chatScroll = ScrollController();
   int _tab = 0;
   bool _loading = true;
-  bool _sendingChat = false;
   User? _me;
   StreamSubscription? _msgSub;
 
@@ -41,9 +42,15 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     _loadAll();
     _msgSub = SocketService.groupMsgStream.listen((m) {
       final msg = GroupMessage.fromJson(m);
-      if (msg.id > 0 && _chat.any((e) => e.id == msg.id)) return;
       if (!mounted) return;
-      setState(() => _chat.add(msg));
+      setState(() {
+        // 替换自己的本地乐观消息
+        if (msg.fromId == (_me?.id ?? 0)) {
+          _chat.removeWhere((e) => e.id < 0 && e.content == msg.content && e.type == msg.type);
+        }
+        if (msg.id > 0 && _chat.any((e) => e.id == msg.id)) return;
+        _chat.add(msg);
+      });
       _scrollChatBottom();
     });
   }
@@ -54,7 +61,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     if (!mounted) return;
     if (err != null || group == null) {
       setState(() { _loading = false; });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err ?? '群组不存在')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err ?? '小社区不存在')));
       return;
     }
     setState(() { _group = group; _members = members; _pendingCount = pending; _me = me; _loading = false; });
@@ -104,8 +111,8 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('退出群组'),
-        content: const Text('确定退出该群组？'),
+        title: const Text('退出小社区'),
+        content: const Text('确定退出该小社区？'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('退出')),
@@ -123,15 +130,26 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     }
   }
 
-  Future<void> _sendChat() async {
-    final t = _chatCtrl.text.trim();
-    if (t.isEmpty || _sendingChat) return;
-    _chatCtrl.clear();
-    setState(() => _sendingChat = true);
-    final err = await Api.sendGroupChat(widget.groupId, t);
-    if (!mounted) return;
-    setState(() => _sendingChat = false);
-    if (err != null) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+  /// ChatInputBar 回调（文本/图/语音/视频）：乐观插入 + 发送
+  Future<String?> _onChatSend(String type, String content, int duration) async {
+    final temp = GroupMessage(
+      id: -DateTime.now().millisecondsSinceEpoch,
+      fromId: _me?.id ?? 0,
+      content: content,
+      type: type,
+      duration: duration,
+      createdAt: DateTime.now().millisecondsSinceEpoch,
+      author: _me,
+    );
+    setState(() => _chat.add(temp));
+    _scrollChatBottom();
+    final err = await Api.sendGroupChat(widget.groupId, content, type: type, duration: duration);
+    if (err != null && mounted) {
+      setState(() => _chat.removeWhere((m) => m.id == temp.id));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      return err;
+    }
+    return null;
   }
 
   // ---------- 管理 ----------
@@ -146,12 +164,12 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setD) => AlertDialog(
-          title: const Text('群组设置'),
+          title: const Text('小社区设置'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: nameCtrl, maxLength: 30, decoration: const InputDecoration(labelText: '群组名称')),
-              TextField(controller: descCtrl, maxLines: 3, maxLength: 500, decoration: const InputDecoration(labelText: '群组简介')),
+              TextField(controller: nameCtrl, maxLength: 30, decoration: const InputDecoration(labelText: '小社区名称')),
+              TextField(controller: descCtrl, maxLines: 3, maxLength: 500, decoration: const InputDecoration(labelText: '小社区简介')),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('加入审核', style: TextStyle(fontSize: 14)),
@@ -213,7 +231,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('移出成员'),
-        content: Text('确定将 ${u.label} 移出群组？'),
+        content: Text('确定将 ${u.label} 移出小社区？'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('移出')),
@@ -310,7 +328,6 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
   void dispose() {
     SocketService.leaveGroup(widget.groupId);
     _msgSub?.cancel();
-    _chatCtrl.dispose();
     _chatScroll.dispose();
     super.dispose();
   }
@@ -320,10 +337,10 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     final g = _group;
     return Scaffold(
       appBar: AppBar(
-        title: Text(g?.name ?? '群组'),
+        title: Text(g?.name ?? '小社区'),
         actions: [
           if (isMember && canManage)
-            IconButton(icon: const Icon(Icons.settings_outlined), tooltip: '群设置', onPressed: _saveSettings),
+            IconButton(icon: const Icon(Icons.settings_outlined), tooltip: '小社区设置', onPressed: _saveSettings),
           if (isMember && canManage)
             IconButton(icon: const Icon(Icons.person_add_alt), tooltip: '拉人进群', onPressed: _invite),
         ],
@@ -331,7 +348,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : g == null
-              ? const Center(child: Text('群组不存在或已解散', style: TextStyle(color: Colors.grey)))
+              ? const Center(child: Text('小社区不存在或已解散', style: TextStyle(color: Colors.grey)))
               : Column(
                   children: [
                     // 群信息头
@@ -439,7 +456,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                   children: [
                     Icon(Icons.edit_note, color: Theme.of(context).colorScheme.primary),
                     const SizedBox(width: 8),
-                    Text('分享点什么到群组吧…', style: TextStyle(color: Colors.grey[500], fontSize: 14)),
+                    Text('分享点什么到小社区吧…', style: TextStyle(color: Colors.grey[500], fontSize: 14)),
                   ],
                 ),
               ),
@@ -447,7 +464,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
           if (_posts.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 50),
-              child: Center(child: Text(isMember ? '群组还没有动态，来发第一条吧' : ( _group!.postsPublic ? '群组还没有公开动态' : '该群动态仅成员可见'), style: TextStyle(color: Colors.grey[500]))),
+              child: Center(child: Text(isMember ? '小社区还没有动态，来发第一条吧' : ( _group!.postsPublic ? '小社区还没有公开动态' : '该社区动态仅成员可见'), style: TextStyle(color: Colors.grey[500]))),
             ),
           ..._posts.map((p) => PostCard(
                 post: p,
@@ -494,14 +511,24 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                             ],
                           ),
                           const SizedBox(height: 2),
-                          Container(
+                          GestureDetector(
+                            onLongPress: () => showMessageActions(
+                              context,
+                              canReport: !mine && m.id > 0,
+                              canCopy: m.type == 'text' && m.content.isNotEmpty,
+                              reportType: 'group_message',
+                              messageId: m.id,
+                              text: m.content,
+                            ),
+                            child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.72),
                             decoration: BoxDecoration(
                               color: mine ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.surfaceContainerHighest,
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: Text(m.content, style: TextStyle(fontSize: 14, color: mine ? Colors.white : null)),
+                            child: ChatMediaContent(type: m.type, content: m.content, duration: m.duration, fromMe: mine),
+                            ),
                           ),
                         ],
                       ),
@@ -509,43 +536,19 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                   },
                 ),
         ),
-        SafeArea(
-          top: false,
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-            decoration: BoxDecoration(
+        if (isMember)
+          ChatInputBar(onSend: _onChatSend)
+        else
+          SafeArea(
+            top: false,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 14),
               color: Theme.of(context).cardColor,
-              border: Border(top: BorderSide(color: Colors.grey.shade200)),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _chatCtrl,
-                    minLines: 1,
-                    maxLines: 4,
-                    maxLength: 2000,
-                    decoration: const InputDecoration(
-                      hintText: '说点什么…',
-                      isDense: true,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(22))),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                      counterText: '',
-                    ),
-                    onSubmitted: (_) => _sendChat(),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton.filled(
-                  onPressed: _sendingChat ? null : _sendChat,
-                  icon: _sendingChat
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.send, size: 18),
-                ),
-              ],
+              child: Text('加入小社区后即可参与群聊', textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey[600], fontSize: 13)),
             ),
           ),
-        ),
       ],
     );
   }
@@ -593,7 +596,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('群组设置', style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text('小社区设置', style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 Row(
                   children: [

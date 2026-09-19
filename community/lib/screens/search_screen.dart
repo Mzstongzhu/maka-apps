@@ -69,7 +69,7 @@ class _SearchScreenState extends State<SearchScreen> {
             textInputAction: TextInputAction.search,
             onSubmitted: _doSearch,
             decoration: InputDecoration(
-              hintText: '搜索动态、用户、群组…',
+              hintText: '搜索动态、用户、小社区…',
               isDense: true,
               filled: true,
               fillColor: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
@@ -124,7 +124,7 @@ class _SearchScreenState extends State<SearchScreen> {
               )),
         ],
         if (r.groups.isNotEmpty) ...[
-          _header('群组', r.groups.length),
+          _header('小社区', r.groups.length),
           ...r.groups.map((g) => ListTile(
                 leading: MakaAvatar(group: GroupBrief(id: g.id, name: g.name, avatar: g.avatar), size: 40),
                 title: Text(g.name, style: const TextStyle(fontWeight: FontWeight.w600)),

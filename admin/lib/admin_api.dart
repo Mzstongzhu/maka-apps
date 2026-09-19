@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+// ignore: constant_identifier_names
 const BASE_URL = 'https://makazs.xyz';
+// ignore: constant_identifier_names
 const OFFICIAL_ADMIN_ID = 10000000;
 
 class AdminUser {
@@ -40,7 +42,9 @@ class AdminReport {
   final String? description;
   final Map<String, dynamic>? target;
   final Map<String, dynamic>? reporter;
-  AdminReport({required this.id, required this.targetType, required this.targetId, required this.reason, this.description, this.target, this.reporter});
+  final Map<String, dynamic>? snapshot;
+  final Map<String, dynamic>? offender;
+  AdminReport({required this.id, required this.targetType, required this.targetId, required this.reason, this.description, this.target, this.reporter, this.snapshot, this.offender});
 
   factory AdminReport.fromJson(Map<String, dynamic> j) => AdminReport(
         id: j['id'] is int ? j['id'] : int.tryParse('${j['id']}') ?? 0,
@@ -50,13 +54,21 @@ class AdminReport {
         description: j['description'] as String?,
         target: j['target'] as Map<String, dynamic>?,
         reporter: j['reporter'] as Map<String, dynamic>?,
+        snapshot: j['snapshot'] as Map<String, dynamic>?,
+        offender: j['offender'] as Map<String, dynamic>?,
       );
+
+  bool get isMessageReport =>
+      targetType == 'dm_message' || targetType == 'message' || targetType == 'chat_message' || targetType == 'group_message';
 
   String get targetTypeLabel => switch (targetType) {
         'post' => '动态',
         'comment' => '评论',
         'user' => '用户',
         'group' => '群组',
+        'dm_message' || 'message' => '私信消息',
+        'chat_message' => '聊天群消息',
+        'group_message' => '小社区消息',
         _ => targetType,
       };
 }

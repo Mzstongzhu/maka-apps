@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../api.dart';
+import 'chat_member_pick.dart';
+import 'chat_group_screen.dart';
 
-/// 发起新私信：搜索用户后进入会话
+/// 发起新私信：搜索用户后进入会话；菜单可创建/加入聊天群组
 class NewChatScreen extends StatefulWidget {
   final void Function(int peerId, String peerName) onPick;
   const NewChatScreen({super.key, required this.onPick});
@@ -24,6 +26,60 @@ class _NewChatScreenState extends State<NewChatScreen> {
     setState(() { _results = users; _loading = false; });
   }
 
+  Future<void> _createGroup() async {
+    final gid = await Navigator.push<int>(context, MaterialPageRoute(
+      builder: (_) => const CreateChatGroupScreen(),
+    ));
+    if (!mounted || gid == null) return;
+    if (!mounted) return;
+    // 进入新群会话；NewChatScreen 与创建页一起弹出
+    Navigator.pop(context);
+    await Navigator.push(context, MaterialPageRoute(
+      builder: (_) => ChatGroupScreen(groupId: gid, groupName: '群组$gid'),
+    ));
+  }
+
+  Future<void> _joinByNumber() async {
+    final ctrl = TextEditingController();
+    final input = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('群号加入'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(hintText: '输入群号（纯数字）'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('加入'),
+          ),
+        ],
+      ),
+    );
+    if (input == null || input.isEmpty) return;
+    final gid = int.tryParse(input);
+    if (gid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('群号格式不正确')));
+      return;
+    }
+    final err = await Api.joinChatByNumber(gid);
+    if (!mounted) return;
+    if (err != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已加入群聊')));
+    if (!mounted) return;
+    Navigator.pop(context);
+    await Navigator.push(context, MaterialPageRoute(
+      builder: (_) => ChatGroupScreen(groupId: gid, groupName: '群组$gid'),
+    ));
+  }
+
   @override
   void dispose() {
     _ctrl.dispose();
@@ -33,7 +89,25 @@ class _NewChatScreenState extends State<NewChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('发起私信')),
+      appBar: AppBar(
+        title: const Text('发起私信'),
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: '群组',
+            icon: const Icon(Icons.groups_outlined),
+            onSelected: (v) {
+              if (v == 'create') _createGroup();
+              if (v == 'join') _joinByNumber();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'create', child: ListTile(
+                leading: Icon(Icons.group_add_outlined), title: Text('创建群组'), contentPadding: EdgeInsets.zero)),
+              PopupMenuItem(value: 'join', child: ListTile(
+                leading: Icon(Icons.pin_invoke_outlined), title: Text('群号加入'), contentPadding: EdgeInsets.zero)),
+            ],
+          ),
+        ],
+      ),
       body: Column(
         children: [
           Padding(

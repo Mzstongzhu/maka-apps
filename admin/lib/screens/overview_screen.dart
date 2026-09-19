@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../admin_api.dart';
+import '../services/version_service.dart';
+import '../widgets/update_dialog.dart';
 
 /// 数据概览：协管员可见待处理数；官方管理员可见全站统计
 class OverviewScreen extends StatefulWidget {
@@ -99,6 +101,16 @@ class _OverviewScreenState extends State<OverviewScreen> with AutomaticKeepAlive
             ('海中瓶子', '${_stats!['bottles'] ?? 0}'),
           ], Colors.teal),
         ],
+        Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: const Icon(Icons.system_update),
+            title: const Text('检查更新'),
+            subtitle: const Text('当前版本 ${VersionService.currentVersion}'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => UpdateDialog.check(context, manual: true),
+          ),
+        ),
         const Padding(
           padding: EdgeInsets.all(16),
           child: Text('协管员仅可处理用户举报；用户管理、内容审核、公告发布仅官方管理员可用。', style: TextStyle(fontSize: 12, color: Colors.grey)),
