@@ -50,6 +50,7 @@ jobs:
           PB=/usr/libexec/PlistBuddy
           $PB -c "Add :NSPhotoLibraryUsageDescription string 用于选择头像与动态配图" "$PLIST"
           $PB -c "Add :NSCameraUsageDescription string 用于拍摄头像与动态配图" "$PLIST"
+          $PB -c "Add :NSMicrophoneUsageDescription string 用于录制语音消息" "$PLIST"
           $PB -c "Set :CFBundleDisplayName '${{ matrix.display }}'" "$PLIST" 2>/dev/null \
             || $PB -c "Add :CFBundleDisplayName string '${{ matrix.display }}'" "$PLIST"
 
@@ -63,6 +64,9 @@ jobs:
       - name: Dependencies & icons
         working-directory: ${{ matrix.dir }}
         run: |
+          # Flutter 3.47 默认启用 SPM，mobile_scanner/record_darwin 未适配会导致
+          # --no-codesign 混合 embed 失败，统一退回 CocoaPods
+          flutter config --no-enable-swift-package-manager
           flutter pub get
           dart run flutter_launcher_icons
 
@@ -87,8 +91,23 @@ jobs:
           path: ${{ matrix.dir }}/build/ios/iphoneos/${{ matrix.artifact }}.ipa
           retention-days: 30
 
-      - name: Create prerelease
-        if: startsWith(github.ref, 'refs/tags/')
+  release:
+    name: Attach IPAs to release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: maka-*-ios-unsigned
+          merge-multiple: true
+          path: ipas
+
+      - name: List
+        run: ls -lh ipas
+
+      - name: Create release and upload
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -96,11 +115,4 @@ jobs:
             --prerelease \
             --title "iOS 未签名测试包 $GITHUB_REF_NAME" \
             --notes "未签名 IPA，需自行签名安装（见 README）。最低系统：iOS 15+。" || true
-
-      - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload "$GITHUB_REF_NAME" \
-            "${{ matrix.dir }}/build/ios/iphoneos/${{ matrix.artifact }}.ipa" --clobber
+          gh release upload "$GITHUB_REF_NAME" ipas/*.ipa --clobber
